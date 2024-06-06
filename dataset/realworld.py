@@ -11,7 +11,9 @@ from PIL import Image
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
+# from dataset.constants import *
 from dataset.constants import *
+
 from dataset.projector import Projector
 from utils.transformation import rot_trans_mat, apply_mat_to_pose, apply_mat_to_pcd, xyz_rot_transform
 
@@ -36,13 +38,15 @@ class RealWorldDataset(Dataset):
         aug_jitter = False,
         aug_jitter_params = [0.4, 0.4, 0.2, 0.1],
         aug_jitter_prob = 0.2,
-        with_cloud = False
+        with_cloud = False,
+        selected_tasks = ['task_0215']
     ):
         assert split in ['train', 'val', 'all']
 
         self.path = path
         self.split = split
-        self.data_path = os.path.join(path, split)
+        # self.data_path = os.path.join(path, split)
+        self.data_path = path
         self.calib_path = os.path.join(path, "calib")
         self.num_obs = num_obs
         self.num_action = num_action
@@ -58,7 +62,13 @@ class RealWorldDataset(Dataset):
         self.with_cloud = with_cloud
         
         self.all_demos = sorted(os.listdir(self.data_path))
+        if selected_tasks is not None:
+            self.all_demos = [x for x in self.all_demos if x[:9] in selected_tasks and len(x) == 39]
+        else:
+            raise ValueError("Please specify selected tasks.")
         self.num_demos = len(self.all_demos)
+        print("Number of demos: {}".format(self.num_demos))
+        # print(self.all_demos)
 
         self.data_paths = []
         self.cam_ids = []
@@ -84,8 +94,9 @@ class RealWorldDataset(Dataset):
                     if int(os.path.splitext(x)[0]) <= meta["finish_time"]
                 ]
                 # get calib timestamps
-                with open(os.path.join(demo_path, "timestamp.txt"), "r") as f:
-                    calib_timestamp = f.readline().rstrip()
+                # with open(os.path.join(demo_path, "timestamp.txt"), "r") as f:
+                    # calib_timestamp = f.readline().rstrip()
+                calib_timestamp = meta["calib"]
                 # get samples according to num_obs and num_action
                 obs_frame_ids_list = []
                 action_frame_ids_list = []
@@ -159,9 +170,13 @@ class RealWorldDataset(Dataset):
         gripper_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'gripper_command')
 
         # load camera projector by calib timestamp
-        timestamp_path = os.path.join(data_path, 'timestamp.txt')
-        with open(timestamp_path, 'r') as f:
-            timestamp = f.readline().rstrip()
+        # timestamp_path = os.path.join(data_path, 'timestamp.txt')
+        # with open(timestamp_path, 'r') as f:
+        #     timestamp = f.readline().rstrip()
+        with open(os.path.join(data_path, "metadata.json"), "r") as f:
+            meta = json.load(f)
+        timestamp = meta["calib"]
+
         if timestamp not in self.projectors:
             # create projector cache
             self.projectors[timestamp] = Projector(os.path.join(self.calib_path, timestamp))
@@ -282,3 +297,10 @@ def collate_fn(batch):
 
 def decode_gripper_width(gripper_width):
     return gripper_width / 1000. * 0.095
+
+if __name__ == '__main__':
+    # dataset = RH20TDataset('/data/RH20T', ['RH20T_cfg1'], selected_tasks=['task_0215'], frame_sample_step=5) # when frame_sample_step = 5 -> around 20Hz (initially 100Hz)
+    # dataset = RH20TDataset('/data/RH20T', ['RH20T_cfg1'], num_input=10, horizon=30 ,selected_tasks=['task_0215'], frame_sample_step=5) # when frame_sample_step = 5 -> around 20Hz (initially 100Hz)
+    
+    dataset = RealWorldDataset('/6024_data1/human_conf1')
+    print(len(dataset))
