@@ -137,8 +137,9 @@ class RealWorldDataset(Dataset):
         tcp_list[:, -1] = tcp_list[:, -1] / MAX_GRIPPER_WIDTH * 2 - 1
         return tcp_list
 
-    def load_point_cloud(self, colors, depths, cam_id):
+    def load_point_cloud(self, colors, depths, cam_id, calib_timestamp):
         h, w = depths.shape
+        INTRINSICS = np.load(os.path.join(self.calib_path, str(calib_timestamp), 'intrinsics.npy'), allow_pickle=True).item()
         fx, fy = INTRINSICS[cam_id][0, 0], INTRINSICS[cam_id][1, 1]
         cx, cy = INTRINSICS[cam_id][0, 2], INTRINSICS[cam_id][1, 2]
         scale = 1000. if 'f' not in cam_id else 4000.
@@ -179,7 +180,7 @@ class RealWorldDataset(Dataset):
 
         if timestamp not in self.projectors:
             # create projector cache
-            self.projectors[timestamp] = Projector(os.path.join(self.calib_path, timestamp))
+            self.projectors[timestamp] = Projector(os.path.join(self.calib_path, str(timestamp)))
         projector = self.projectors[timestamp]
 
         # create color jitter
@@ -196,7 +197,7 @@ class RealWorldDataset(Dataset):
         colors_list = []
         depths_list = []
         for frame_id in obs_frame_ids:
-            colors = Image.open(os.path.join(color_dir, "{}.png".format(frame_id)))
+            colors = Image.open(os.path.join(color_dir, "{}.jpg".format(frame_id)))
             if self.split == 'train' and self.aug_jitter:
                 colors = jitter(colors)
             colors_list.append(colors)
@@ -209,7 +210,7 @@ class RealWorldDataset(Dataset):
         # point clouds
         clouds = []
         for i, frame_id in enumerate(obs_frame_ids):
-            points, colors = self.load_point_cloud(colors_list[i], depths_list[i], cam_id)
+            points, colors = self.load_point_cloud(colors_list[i], depths_list[i], cam_id, calib_timestamp)
             x_mask = ((points[:, 0] >= WORKSPACE_MIN[0]) & (points[:, 0] <= WORKSPACE_MAX[0]))
             y_mask = ((points[:, 1] >= WORKSPACE_MIN[1]) & (points[:, 1] <= WORKSPACE_MAX[1]))
             z_mask = ((points[:, 2] >= WORKSPACE_MIN[2]) & (points[:, 2] <= WORKSPACE_MAX[2]))
@@ -302,5 +303,5 @@ if __name__ == '__main__':
     # dataset = RH20TDataset('/data/RH20T', ['RH20T_cfg1'], selected_tasks=['task_0215'], frame_sample_step=5) # when frame_sample_step = 5 -> around 20Hz (initially 100Hz)
     # dataset = RH20TDataset('/data/RH20T', ['RH20T_cfg1'], num_input=10, horizon=30 ,selected_tasks=['task_0215'], frame_sample_step=5) # when frame_sample_step = 5 -> around 20Hz (initially 100Hz)
     
-    dataset = RealWorldDataset('/6024_data1/human_conf1')
+    dataset = RealWorldDataset('/aidata/RH100T_cfg1')
     print(len(dataset))
