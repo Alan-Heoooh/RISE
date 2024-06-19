@@ -11,7 +11,6 @@ from PIL import Image
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
-# from dataset.constants import *
 from dataset.constants import *
 
 from dataset.projector import Projector
@@ -70,23 +69,27 @@ class RealWorldDataset(Dataset):
         print("Number of demos: {}".format(self.num_demos))
         # print(self.all_demos)
 
+        self.task_names = []
         self.data_paths = []
         self.cam_ids = []
         self.calib_timestamp = []
         self.obs_frame_ids = []
         self.action_frame_ids = []
+        self.force_torque_list = []
         self.projectors = {}
         
         for i in range(self.num_demos):
             demo_path = os.path.join(self.data_path, self.all_demos[i])
+            # metadata
+            with open(os.path.join(demo_path, "metadata.json"), "r") as f:
+                meta = json.load(f)
+            if 'rating' not in meta or meta['rating'] <= 1:
+                continue
             for cam_id in cam_ids:
-                # path
+                # cam path
                 cam_path = os.path.join(demo_path, "cam_{}".format(cam_id))
                 if not os.path.exists(cam_path):
                     continue
-                # metadata
-                with open(os.path.join(demo_path, "metadata.json"), "r") as f:
-                    meta = json.load(f)
                 # get frame ids
                 frame_ids = [
                     int(os.path.splitext(x)[0]) 
@@ -94,13 +97,14 @@ class RealWorldDataset(Dataset):
                     if int(os.path.splitext(x)[0]) <= meta["finish_time"]
                 ]
                 # get calib timestamps
-                # with open(os.path.join(demo_path, "timestamp.txt"), "r") as f:
-                    # calib_timestamp = f.readline().rstrip()
                 calib_timestamp = meta["calib"]
                 # get samples according to num_obs and num_action
                 obs_frame_ids_list = []
                 action_frame_ids_list = []
                 padding_mask_list = []
+                force_torque_list = []
+                force_data = np.load(os.path.join(demo_path, 'transformed', 'force_torque.npy'), allow_pickle=True)[()][cam_id]
+                force_data = [x['zeroed'] for x in force_data]
 
                 for cur_idx in range(len(frame_ids) - 1):
                     obs_pad_before = max(0, num_obs - cur_idx - 1)
@@ -109,14 +113,20 @@ class RealWorldDataset(Dataset):
                     frame_end = min(len(frame_ids), cur_idx + num_action + 1)
                     obs_frame_ids = frame_ids[:1] * obs_pad_before + frame_ids[frame_begin: cur_idx + 1]
                     action_frame_ids = frame_ids[cur_idx + 1: frame_end] + frame_ids[-1:] * action_pad_after
+                    force_torque = force_data[:1] * obs_pad_before + force_data[frame_begin: cur_idx + 1]
+                    force_torque = np.array(force_torque).astype(np.float32)
                     obs_frame_ids_list.append(obs_frame_ids)
                     action_frame_ids_list.append(action_frame_ids)
+                    force_torque_list.append(force_torque)
                 
+                self.task_names += [self.all_demos[i]] * len(obs_frame_ids_list)
                 self.data_paths += [demo_path] * len(obs_frame_ids_list)
                 self.cam_ids += [cam_id] * len(obs_frame_ids_list)
                 self.calib_timestamp += [calib_timestamp] * len(obs_frame_ids_list)
                 self.obs_frame_ids += obs_frame_ids_list
                 self.action_frame_ids += action_frame_ids_list
+                self.force_torque_list += force_torque_list
+
         
     def __len__(self):
         return len(self.obs_frame_ids)
@@ -169,6 +179,7 @@ class RealWorldDataset(Dataset):
         depth_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'depth')
         tcp_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'tcp')
         gripper_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'gripper_command')
+        # force_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'force_torque')
 
         # load camera projector by calib timestamp
         # timestamp_path = os.path.join(data_path, 'timestamp.txt')
@@ -222,6 +233,9 @@ class RealWorldDataset(Dataset):
             cloud = np.concatenate([points, colors], axis = -1)
             clouds.append(cloud)
 
+        # load force
+        force_list = self.force_torque_list[index]
+
         # actions
         action_tcps = []
         action_grippers = []
@@ -262,8 +276,13 @@ class RealWorldDataset(Dataset):
         ret_dict = {
             'input_coords_list': input_coords_list,
             'input_feats_list': input_feats_list,
+            'input_force_list': force_list,
             'action': actions,
-            'action_normalized': actions_normalized
+            'action_normalized': actions_normalized,
+
+            'task_name': self.task_names[index],
+            'obs_frame_ids': obs_frame_ids,
+            'data_path': data_path,
         }
         
         if self.with_cloud:  # warning: this may significantly slow down the training process.
@@ -305,3 +324,4 @@ if __name__ == '__main__':
     
     dataset = RealWorldDataset('/aidata/RH100T_cfg1')
     print(len(dataset))
+    print(dataset[0]["clouds_list"])

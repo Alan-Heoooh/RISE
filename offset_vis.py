@@ -9,19 +9,22 @@ import torch.nn as nn
 import MinkowskiEngine as ME
 import matplotlib.pyplot as plt
 import torch.distributed as dist
+from PIL import Image
 
 from tqdm import tqdm
 from copy import deepcopy
 from easydict import EasyDict as edict
 from diffusers.optimization import get_cosine_schedule_with_warmup
 
-from policy import RISE
-from eval_agent import Agent
+from dataset.realworld import RealWorldDataset, collate_fn
+from policy import RISE, MLPDiffusion
+# from eval_agent import Agent
 from utils.constants import *
 from utils.training import set_seed
 from dataset.projector import Projector
 from utils.ensemble import EnsembleBuffer
 from utils.transformation import rotation_transform
+
 
 default_args = edict({
     "ckpt": None,
@@ -38,7 +41,7 @@ default_args = edict({
     "dropout": 0.1,
     "max_steps": 300,
     "seed": 233,
-    "vis": False,
+    "vis": True,
     "discretize_rotation": True,
     "ensemble_mode": "new"
 })
@@ -101,31 +104,7 @@ def unnormalize_action(action):
     action[..., -1] = (action[..., -1] + 1) / 2.0 * MAX_GRIPPER_WIDTH
     return action
 
-def rot_diff(rot1, rot2):
-    rot1_mat = rotation_transform(
-        rot1,
-        from_rep = "rotation_6d",
-        to_rep = "matrix"
-    )
-    rot2_mat = rotation_transform(
-        rot2,
-        from_rep = "rotation_6d",
-        to_rep = "matrix"
-    )
-    diff = rot1_mat @ rot2_mat.T
-    diff = np.diag(diff).sum()
-    diff = min(max((diff - 1) / 2.0, -1), 1)
-    return np.arccos(diff)
-
-def discretize_rotation(rot_begin, rot_end, rot_step_size = np.pi / 16):
-    n_step = int(rot_diff(rot_begin, rot_end) // rot_step_size) + 1
-    rot_steps = []
-    for i in range(n_step):
-        rot_i = rot_begin * (n_step - 1 - i) / n_step + rot_end * (i + 1) / n_step
-        rot_steps.append(rot_i)
-    return rot_steps
-
-def evaluate(args_override):
+def get_offset(args_override):
     # load default arguments
     args = deepcopy(default_args)
     for key, value in args_override.items():
@@ -136,7 +115,7 @@ def evaluate(args_override):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # policy
-    print("Loading policy ...")
+    print("Loading RISE policy ...")
     policy = RISE(
         num_action = args.num_action,
         input_dim = 6,
@@ -156,39 +135,70 @@ def evaluate(args_override):
     policy.load_state_dict(torch.load(args.ckpt, map_location = device), strict = False)
     print("Checkpoint {} loaded.".format(args.ckpt))
 
-    # evaluation
-    # agent = Agent(
-    #     robot_ip = "192.168.2.100",
-    #     pc_ip = "192.168.2.35",
-    #     gripper_port = "/dev/ttyUSB0",
-    #     camera_serial = "750612070851"
-    # )
-    projector = Projector(args.calib)
+    # offset policy
+    print("Loading MLPDiffusion policy ...")
+    offset_policy = MLPDiffusion(
+        num_action = args.num_action,
+        hidden_dim = [16, 32],
+        obs_dim = 6,
+        obs_feature_dim = args.force_feature_dim,
+        action_dim = 10,
+        dropout = 0.1
+    ).to(device)
+
+    # load offset checkpoint
+    assert args.offset_ckpt is not None, "Please provide the offset checkpoint to evaluate."
+    offset_policy.load_state_dict(torch.load(args.offset_ckpt, map_location = device), strict = False)
+    print("Offset checkpoint {} loaded.".format(args.offset_ckpt))
+
+    # projector = Projector(os.path.join(args.calib, str(calib_timestamp)))
     ensemble_buffer = EnsembleBuffer(mode = args.ensemble_mode)
-    
-    # if args.discretize_rotation:
-    #     last_rot = np.array(agent.ready_rot_6d, dtype = np.float32)
+
+    dataset = RealWorldDataset(
+        path = args.data_path,
+        split = 'train',
+        num_obs = 1,
+        num_action = args.num_action,
+        voxel_size = args.voxel_size,
+        # aug = True,
+        # aug_jitter = True, 
+        with_cloud = True,
+    )
+    print(len(dataset))
     with torch.inference_mode():
         policy.eval()
-        prev_width = None
-        for t in range(args.max_steps):
-            if t % args.num_action == 0:
-                # pre-process inputs
-                colors, depths = agent.get_observation()
-                coords, feats, cloud = create_input(
-                    colors,
-                    depths,
-                    cam_intrinsics = agent.intrinsics,
-                    voxel_size = args.voxel_size
-                )
+        offset_policy.eval()
+        cam_id = '750612070851'
+        actions = []
+        cloud0 = dataset[0]['clouds_list'][0]
+
+        for i in range(args.max_steps):
+            ret_dict = dataset[i]
+            task_name = ret_dict["task_name"]
+            data_path = ret_dict["data_path"]
+            with open(os.path.join(data_path, "metadata.json"), "r") as f:
+                meta = json.load(f)
+            calib_timestamp = meta["calib"]
+            projector = Projector(os.path.join(args.calib, str(calib_timestamp)))
+            if i % args.num_action == 0:
+                feats = torch.tensor(ret_dict['input_feats_list'][0])
+                coords = torch.tensor(ret_dict['input_coords_list'][0])
+                cloud = ret_dict['clouds_list'][0]
                 feats, coords = feats.to(device), coords.to(device)
+                coords, feats = create_batch(coords, feats)
                 cloud_data = ME.SparseTensor(feats, coords)
-                # predict
                 pred_raw_action = policy(cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
-                # unnormalize predicted actions
-                action = unnormalize_action(pred_raw_action)
-                # visualization
+                rise_action = unnormalize_action(pred_raw_action) # cam coordinate 
+                # load offset action
+                force_torque = torch.tensor(ret_dict['input_force_list'])
+                force_torque = force_torque.to(device)
+                offset_action = offset_policy(force_torque, actions = None).squeeze(0).cpu().numpy()
+                # final action
+                action = rise_action - offset_action
+                # print("Rise action: ", rise_action)
+                # print("Offset action: ", offset_action)
                 if args.vis:
+                    print("Show cloud ...")
                     import open3d as o3d
                     pcd = o3d.geometry.PointCloud()
                     pcd.points = o3d.utility.Vector3dVector(cloud[:, :3])
@@ -196,58 +206,47 @@ def evaluate(args_override):
                     tcp_vis_list = []
                     for raw_tcp in action:
                         tcp_vis = o3d.geometry.TriangleMesh.create_sphere(0.01).translate(raw_tcp[:3])
+                        tcp_vis.paint_uniform_color([1.0, 0.0, 0.0])  # set color to red
                         tcp_vis_list.append(tcp_vis)
-                    o3d.visualization.draw_geometries([pcd, *tcp_vis_list])
-                # project action to base coordinate
-                action_tcp = projector.project_tcp_to_base_coord(action[..., :-1], cam = agent.camera_serial, rotation_rep = "rotation_6d")
-                action_width = action[..., -1]
-                # safety insurance
-                action_tcp[..., :3] = np.clip(action_tcp[..., :3], SAFE_WORKSPACE_MIN + SAFE_EPS, SAFE_WORKSPACE_MAX - SAFE_EPS)
-                # full actions
-                action = np.concatenate([action_tcp, action_width[..., np.newaxis]], axis = -1)
-                # add to ensemble buffer
-                ensemble_buffer.add_action(action, t)
-            
+                    tcp_vis_rise_list = []
+                    for raw_tcp in rise_action:
+                        tcp_vis_rise = o3d.geometry.TriangleMesh.create_sphere(0.01).translate(raw_tcp[:3])
+                        tcp_vis_rise.paint_uniform_color([0.0, 1.0, 0.0]) # set color to green
+                        tcp_vis_rise_list.append(tcp_vis_rise) 
+                    o3d.visualization.draw_geometries([pcd, *tcp_vis_list, *tcp_vis_rise_list])
+                ensemble_buffer.add_action(action, i)
+
             # get step action from ensemble buffer
             step_action = ensemble_buffer.get_action()
             if step_action is None:   # no action in the buffer => no movement.
                 continue
-            
-            step_tcp = step_action[:-1]
-            step_width = step_action[-1]
+            actions.append(step_action)
 
-            # send tcp pose to robot
-            if args.discretize_rotation:
-                rot_steps = discretize_rotation(last_rot, step_tcp[3:], np.pi / 16)
-                last_rot = step_tcp[3:]
-                for rot in rot_steps:
-                    step_tcp[3:] = rot
-                    agent.set_tcp_pose(
-                        step_tcp, 
-                        rotation_rep = "rotation_6d",
-                        blocking = True
-                    )
-            else:
-                agent.set_tcp_pose(
-                    step_tcp,
-                    rotation_rep = "rotation_6d",
-                    blocking = True
-                )
-            
-            # send gripper width to gripper (thresholding to avoid repeating sending signals to gripper)
-            if prev_width is None or abs(prev_width - step_width) > GRIPPER_THRESHOLD:
-                agent.set_gripper_width(step_width, blocking = True)
-                prev_width = step_width
-    
-    # agent.stop()
+        # visualization
+        # if args.vis:
+        #     print("Show cloud ...")
+        #     import open3d as o3d
+        #     pcd = o3d.geometry.PointCloud()
+        #     pcd.points = o3d.utility.Vector3dVector(cloud0[:, :3])
+        #     pcd.colors = o3d.utility.Vector3dVector(cloud0[:, 3:] * IMG_STD + IMG_MEAN)
+        #     tcp_vis_list = []
+        #     for raw_tcp in actions:
+        #         tcp_vis = o3d.geometry.TriangleMesh.create_sphere(0.01).translate(raw_tcp[:3])
+        #         tcp_vis_list.append(tcp_vis)
+        #     o3d.visualization.draw_geometries([pcd, *tcp_vis_list])
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', action = 'store', type = str, help = 'checkpoint path', required = True)
+    parser.add_argument('--offset_ckpt', action = 'store', type = str, help = 'checkpoint path', required = True)
+
     parser.add_argument('--calib', action = 'store', type = str, help = 'calibration path', required = True)
+    parser.add_argument('--data_path', action = 'store', type = str, help = 'data path', required = True)
+    
     parser.add_argument('--num_action', action = 'store', type = int, help = 'number of action steps', required = False, default = 20)
+    parser.add_argument('--force_feature_dim', action = 'store', type = int, help = 'observation feature dimension', required = False, default = 64)
     parser.add_argument('--num_inference_step', action = 'store', type = int, help = 'number of inference query steps', required = False, default = 20)
     parser.add_argument('--voxel_size', action = 'store', type = float, help = 'voxel size', required = False, default = 0.005)
     parser.add_argument('--obs_feature_dim', action = 'store', type = int, help = 'observation feature dimension', required = False, default = 512)
@@ -263,4 +262,4 @@ if __name__ == '__main__':
     parser.add_argument('--discretize_rotation', action = 'store_true', help = 'whether to discretize rotation process.')
     parser.add_argument('--ensemble_mode', action = 'store', type = str, help = 'temporal ensemble mode', required = False, default = 'new')
 
-    evaluate(vars(parser.parse_args()))
+    get_offset(vars(parser.parse_args()))
