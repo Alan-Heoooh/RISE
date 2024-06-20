@@ -65,6 +65,20 @@ class RealWorldDataset(Dataset):
             self.all_demos = [x for x in self.all_demos if x[:9] in selected_tasks and len(x) == 39]
         else:
             raise ValueError("Please specify selected tasks.")
+        if split == 'train':
+            cur_task_ids = [tid for tid in self.all_demos if 'scene_0010' not in tid]
+        elif split == 'val':
+            cur_task_ids = [tid for tid in self.all_demos if 'scene_0010' in tid]
+        task_ids = []
+        for task_id in cur_task_ids:
+            demo_path = os.path.join(self.data_path, task_id)
+            with open(os.path.join(demo_path, "metadata.json"), "r") as f:
+                meta = json.load(f)
+            if 'rating' not in meta or meta['rating'] <= 1:
+                continue
+            task_ids.append(task_id)
+        self.all_demos = task_ids
+
         self.num_demos = len(self.all_demos)
         print("Number of demos: {}".format(self.num_demos))
         # print(self.all_demos)
@@ -179,12 +193,8 @@ class RealWorldDataset(Dataset):
         depth_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'depth')
         tcp_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'tcp')
         gripper_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'gripper_command')
-        # force_dir = os.path.join(data_path, "cam_{}".format(cam_id), 'force_torque')
 
         # load camera projector by calib timestamp
-        # timestamp_path = os.path.join(data_path, 'timestamp.txt')
-        # with open(timestamp_path, 'r') as f:
-        #     timestamp = f.readline().rstrip()
         with open(os.path.join(data_path, "metadata.json"), "r") as f:
             meta = json.load(f)
         timestamp = meta["calib"]
@@ -281,7 +291,6 @@ class RealWorldDataset(Dataset):
             'action_normalized': actions_normalized,
 
             'task_name': self.task_names[index],
-            'obs_frame_ids': obs_frame_ids,
             'data_path': data_path,
         }
         
@@ -324,4 +333,4 @@ if __name__ == '__main__':
     
     dataset = RealWorldDataset('/aidata/RH100T_cfg1')
     print(len(dataset))
-    print(dataset[0]["clouds_list"])
+    print(dataset[0]["action"])

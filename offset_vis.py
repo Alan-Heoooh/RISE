@@ -172,9 +172,9 @@ def get_offset(args_override):
         actions = []
         cloud0 = dataset[0]['clouds_list'][0]
 
-        for i in range(args.max_steps):
+        for i in range(0, args.max_steps):
             ret_dict = dataset[i]
-            task_name = ret_dict["task_name"]
+            # task_name = ret_dict["task_name"]
             data_path = ret_dict["data_path"]
             with open(os.path.join(data_path, "metadata.json"), "r") as f:
                 meta = json.load(f)
@@ -195,8 +195,7 @@ def get_offset(args_override):
                 offset_action = offset_policy(force_torque, actions = None).squeeze(0).cpu().numpy()
                 # final action
                 action = rise_action - offset_action
-                # print("Rise action: ", rise_action)
-                # print("Offset action: ", offset_action)
+                gt_action = ret_dict['action']
                 if args.vis:
                     print("Show cloud ...")
                     import open3d as o3d
@@ -205,15 +204,20 @@ def get_offset(args_override):
                     pcd.colors = o3d.utility.Vector3dVector(cloud[:, 3:] * IMG_STD + IMG_MEAN)
                     tcp_vis_list = []
                     for raw_tcp in action:
-                        tcp_vis = o3d.geometry.TriangleMesh.create_sphere(0.01).translate(raw_tcp[:3])
+                        tcp_vis = o3d.geometry.TriangleMesh.create_sphere(0.005).translate(raw_tcp[:3])
                         tcp_vis.paint_uniform_color([1.0, 0.0, 0.0])  # set color to red
                         tcp_vis_list.append(tcp_vis)
                     tcp_vis_rise_list = []
                     for raw_tcp in rise_action:
-                        tcp_vis_rise = o3d.geometry.TriangleMesh.create_sphere(0.01).translate(raw_tcp[:3])
+                        tcp_vis_rise = o3d.geometry.TriangleMesh.create_sphere(0.005).translate(raw_tcp[:3])
                         tcp_vis_rise.paint_uniform_color([0.0, 1.0, 0.0]) # set color to green
                         tcp_vis_rise_list.append(tcp_vis_rise) 
-                    o3d.visualization.draw_geometries([pcd, *tcp_vis_list, *tcp_vis_rise_list])
+                    tcp_vis_gt_list = []
+                    for raw_tcp in gt_action:
+                        tcp_vis_gt = o3d.geometry.TriangleMesh.create_sphere(0.005).translate(raw_tcp[:3])
+                        tcp_vis_gt.paint_uniform_color([0.0, 0.0, 1.0]) # set color to blue
+                        tcp_vis_gt_list.append(tcp_vis_gt) 
+                    o3d.visualization.draw_geometries([pcd, *tcp_vis_list, *tcp_vis_rise_list, *tcp_vis_gt_list])
                 ensemble_buffer.add_action(action, i)
 
             # get step action from ensemble buffer
