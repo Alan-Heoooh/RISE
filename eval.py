@@ -157,17 +157,17 @@ def evaluate(args_override):
     print("Checkpoint {} loaded.".format(args.ckpt))
 
     # evaluation
-    # agent = Agent(
-    #     robot_ip = "192.168.2.100",
-    #     pc_ip = "192.168.2.35",
-    #     gripper_port = "/dev/ttyUSB0",
-    #     camera_serial = "750612070851"
-    # )
+    agent = Agent(
+        robot_ip = "192.168.2.100",
+        pc_ip = "192.168.2.35",
+        gripper_port = "/dev/ttyUSB0",
+        camera_serial = "750612070851"
+    )
     projector = Projector(args.calib)
     ensemble_buffer = EnsembleBuffer(mode = args.ensemble_mode)
     
-    # if args.discretize_rotation:
-    #     last_rot = np.array(agent.ready_rot_6d, dtype = np.float32)
+    if args.discretize_rotation:
+        last_rot = np.array(agent.ready_rot_6d, dtype = np.float32)
     with torch.inference_mode():
         policy.eval()
         prev_width = None
@@ -239,7 +239,7 @@ def evaluate(args_override):
                 agent.set_gripper_width(step_width, blocking = True)
                 prev_width = step_width
     
-    # agent.stop()
+    agent.stop()
 
 
 

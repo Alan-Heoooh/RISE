@@ -104,6 +104,14 @@ def unnormalize_action(action):
     action[..., -1] = (action[..., -1] + 1) / 2.0 * MAX_GRIPPER_WIDTH
     return action
 
+def unnormalize_offset_action(offset_action):
+    trans_min = np.array([-0.15, -0.15, -0.10])
+    trans_max = np.array([0.15, 0.15, 0.10])
+    max_gripper_width = 0.11 # meter
+    offset_action[..., :3] = (offset_action[..., :3] + 1) / 2.0 * (trans_max - trans_min) + trans_min
+    offset_action[..., -1] = (offset_action[..., -1] + 1) / 2.0 * max_gripper_width
+    return offset_action
+
 def get_offset(args_override):
     # load default arguments
     args = deepcopy(default_args)
@@ -127,8 +135,8 @@ def get_offset(args_override):
         num_decoder_layers = args.num_decoder_layers,
         dropout = args.dropout
     ).to(device)
-    n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
-    print("Number of parameters: {:.2f}M".format(n_parameters / 1e6))
+    # n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
+    # print("Number of parameters: {:.2f}M".format(n_parameters / 1e6))
 
     # load checkpoint
     assert args.ckpt is not None, "Please provide the checkpoint to evaluate."
@@ -140,6 +148,7 @@ def get_offset(args_override):
     offset_policy = MLPDiffusion(
         num_action = args.num_action,
         hidden_dim = [16, 32],
+        num_obs= 100,
         obs_dim = 6,
         obs_feature_dim = args.force_feature_dim,
         action_dim = 10,
@@ -158,6 +167,7 @@ def get_offset(args_override):
         path = args.data_path,
         split = 'train',
         num_obs = 1,
+        num_obs_force= 100,
         num_action = args.num_action,
         voxel_size = args.voxel_size,
         # aug = True,
@@ -165,16 +175,16 @@ def get_offset(args_override):
         with_cloud = True,
     )
     print(len(dataset))
+    mean_pos_error_total = 0
+    mean_rise_pos_error_total = 0 
     with torch.inference_mode():
         policy.eval()
         offset_policy.eval()
         cam_id = '750612070851'
         actions = []
-        cloud0 = dataset[0]['clouds_list'][0]
-
-        for i in range(0, args.max_steps):
+        start_step = 200
+        for i in range(start_step, start_step+args.max_steps):
             ret_dict = dataset[i]
-            # task_name = ret_dict["task_name"]
             data_path = ret_dict["data_path"]
             with open(os.path.join(data_path, "metadata.json"), "r") as f:
                 meta = json.load(f)
@@ -192,10 +202,12 @@ def get_offset(args_override):
                 # load offset action
                 force_torque = torch.tensor(ret_dict['input_force_list'])
                 force_torque = force_torque.to(device)
-                offset_action = offset_policy(force_torque, actions = None).squeeze(0).cpu().numpy()
+                # print(force_torque.shape)
+                pred_offset_action = offset_policy(force_torque, actions = None).squeeze(0).cpu().numpy()
+                offset_action = unnormalize_offset_action(pred_offset_action)
                 # final action
                 action = rise_action - offset_action
-                gt_action = ret_dict['action']
+                gt_action = ret_dict['action'].squeeze(0).cpu().numpy()
                 if args.vis:
                     print("Show cloud ...")
                     import open3d as o3d
@@ -205,19 +217,31 @@ def get_offset(args_override):
                     tcp_vis_list = []
                     for raw_tcp in action:
                         tcp_vis = o3d.geometry.TriangleMesh.create_sphere(0.005).translate(raw_tcp[:3])
-                        tcp_vis.paint_uniform_color([1.0, 0.0, 0.0])  # set color to red
+                        tcp_vis.paint_uniform_color([0.0, 1.0, 0.0])  # set color to green
                         tcp_vis_list.append(tcp_vis)
                     tcp_vis_rise_list = []
                     for raw_tcp in rise_action:
                         tcp_vis_rise = o3d.geometry.TriangleMesh.create_sphere(0.005).translate(raw_tcp[:3])
-                        tcp_vis_rise.paint_uniform_color([0.0, 1.0, 0.0]) # set color to green
+                        tcp_vis_rise.paint_uniform_color([1.0, 0.0, 0.0]) # set color to red
                         tcp_vis_rise_list.append(tcp_vis_rise) 
                     tcp_vis_gt_list = []
                     for raw_tcp in gt_action:
                         tcp_vis_gt = o3d.geometry.TriangleMesh.create_sphere(0.005).translate(raw_tcp[:3])
                         tcp_vis_gt.paint_uniform_color([0.0, 0.0, 1.0]) # set color to blue
-                        tcp_vis_gt_list.append(tcp_vis_gt) 
-                    o3d.visualization.draw_geometries([pcd, *tcp_vis_list, *tcp_vis_rise_list, *tcp_vis_gt_list])
+                        tcp_vis_gt_list.append(tcp_vis_gt)
+                    # Mean position error of action and gt_action
+                    mean_pos_error = np.sum(np.linalg.norm(action[:, :3] - gt_action[:, :3], axis = 1))
+                    mean_rise_pos_error = np.sum(np.linalg.norm(rise_action[:, :3] - gt_action[:, :3], axis = 1))
+                    mean_angle_error = np.sum(np.linalg.norm(action[:, 3:10] - gt_action[:, 3:10], axis = 1))
+                    mean_rise_angle_error = np.sum(np.linalg.norm(rise_action[:, 3:10] - gt_action[:, 3:10], axis = 1))
+                    print("Mean position error: ", mean_pos_error)
+                    print("Mean rise position error: ", mean_rise_pos_error)
+                    print("Mean angle error: ", mean_angle_error)
+                    print("Mean rise angle error: ", mean_rise_angle_error)
+                    mean_pos_error_total += mean_pos_error
+                    mean_rise_pos_error_total += mean_rise_pos_error
+
+                    # o3d.visualization.draw_geometries([pcd, *tcp_vis_list, *tcp_vis_rise_list, *tcp_vis_gt_list])
                 ensemble_buffer.add_action(action, i)
 
             # get step action from ensemble buffer
@@ -226,18 +250,8 @@ def get_offset(args_override):
                 continue
             actions.append(step_action)
 
-        # visualization
-        # if args.vis:
-        #     print("Show cloud ...")
-        #     import open3d as o3d
-        #     pcd = o3d.geometry.PointCloud()
-        #     pcd.points = o3d.utility.Vector3dVector(cloud0[:, :3])
-        #     pcd.colors = o3d.utility.Vector3dVector(cloud0[:, 3:] * IMG_STD + IMG_MEAN)
-        #     tcp_vis_list = []
-        #     for raw_tcp in actions:
-        #         tcp_vis = o3d.geometry.TriangleMesh.create_sphere(0.01).translate(raw_tcp[:3])
-        #         tcp_vis_list.append(tcp_vis)
-        #     o3d.visualization.draw_geometries([pcd, *tcp_vis_list])
+        print("Mean position error total: ", mean_pos_error_total / args.max_steps)
+        print("Mean rise position error total: ", mean_rise_pos_error_total / args.max_steps)
 
 
 

@@ -299,7 +299,7 @@ class DiffusionUNetLowdimPolicy(nn.Module):
         return trajectory
     
     def predict_action(self, force) -> Dict[str, torch.Tensor]:
-        B = force.shape[0]
+        B = 1
         T = self.horizon
         Da = self.action_dim
         Do = self.obs_feature_dim
@@ -313,7 +313,7 @@ class DiffusionUNetLowdimPolicy(nn.Module):
         # condition through global feature
         local_cond = None
         global_cond = None
-        #reshape back to B, Do
+        # reshape back to B, Do
         global_cond = obs_features.reshape(B, -1)
         # empty data for action
         cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)

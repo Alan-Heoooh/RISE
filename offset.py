@@ -149,21 +149,21 @@ def get_offset(args_override):
         with_cloud = False
     )
     print(len(dataset))
+
     offsets = {}
-    path = '/aidata/zihao/data/offset'
     with torch.inference_mode():
         policy.eval()
-        cam_id = '750612070851'
-        for i in range(len(dataset)):
+        for i in tqdm(range(len(dataset))):
             ret_dict = dataset[i]
             task_name = ret_dict["task_name"]
             data_path = ret_dict["data_path"]
             timestamp = ret_dict['obs_frame_ids'][0]
+            cam_id = ret_dict['cam_id']
 
-            with open(os.path.join(data_path, "metadata.json"), "r") as f:
-                meta = json.load(f)
-            calib_timestamp = meta["calib"]
-            projector = Projector(os.path.join(args.calib, str(calib_timestamp)))
+            # with open(os.path.join(data_path, "metadata.json"), "r") as f:
+                # meta = json.load(f)
+            # calib_timestamp = meta["calib"]
+            # projector = Projector(os.path.join(args.calib, str(calib_timestamp)))
             if i % args.num_action == 0:
                 feats = torch.tensor(ret_dict['input_feats_list'][0])
                 coords = torch.tensor(ret_dict['input_coords_list'][0])
@@ -172,18 +172,7 @@ def get_offset(args_override):
                 cloud_data = ME.SparseTensor(feats, coords)
                 pred_raw_action = policy(cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
                 action = unnormalize_action(pred_raw_action) # cam coordinate 
-                # print("Original action: ", ret_dict['action'])
-                # print("Predicted action: ", action)
-
-                # # project to base coordinate
-                # action_tcp = projector.project_tcp_to_base_coord(action[..., :-1], cam = cam_id, rotation_rep = "rotation_6d")
-                # action_width = action[..., -1]
-                # # safety insurance
-                # action_tcp[..., :3] = np.clip(action_tcp[..., :3], SAFE_WORKSPACE_MIN + SAFE_EPS, SAFE_WORKSPACE_MAX - SAFE_EPS)
-                # # full actions
-                # action = np.concatenate([action_tcp, action_width[..., np.newaxis]], axis = -1)
                 ensemble_buffer.add_action(action, i)
-
             # get step action from ensemble buffer
             step_action = ensemble_buffer.get_action()
             if step_action is None:   # no action in the buffer => no movement.
@@ -191,9 +180,11 @@ def get_offset(args_override):
             
             step_tcp = step_action[:-1]
             step_width = step_action[-1]
-            # print("Original action: ", ret_dict['action'][-1])
+            # print("Original action: ", ret_dict['action'][0])
             # print("Predicted action: ", step_action)
+            # print("Action:", ret_dict['action'])
             offset = {
+                "cam_id": cam_id,
                 "timestamp": timestamp,
                 "offset": step_action - ret_dict['action'][0].numpy()
             }
@@ -202,12 +193,7 @@ def get_offset(args_override):
                 offsets[task_name] = []
             offsets[task_name].append(offset)
 
-            # make task directory
-            # task_path = os.path.join(path, task_name)
-            # if not os.path.exists(task_path):
-            #     os.mkdir(task_path)
-
-        np.save('/aidata/zihao/data/offset/offset1.npy', offsets, allow_pickle=True)
+        np.save(args.offset_path, offsets, allow_pickle=True)
 
 
 if __name__ == '__main__':
@@ -215,7 +201,7 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt', action = 'store', type = str, help = 'checkpoint path', required = True)
     parser.add_argument('--calib', action = 'store', type = str, help = 'calibration path', required = True)
     parser.add_argument('--data_path', action = 'store', type = str, help = 'data path', required = True)
-    
+    parser.add_argument('--offset_path', action = 'store', type = str, help = 'offset path', required = True)
     parser.add_argument('--num_action', action = 'store', type = int, help = 'number of action steps', required = False, default = 20)
     parser.add_argument('--num_inference_step', action = 'store', type = int, help = 'number of inference query steps', required = False, default = 20)
     parser.add_argument('--voxel_size', action = 'store', type = float, help = 'voxel size', required = False, default = 0.005)

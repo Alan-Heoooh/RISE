@@ -46,25 +46,29 @@ class MLPDiffusion(nn.Module):
     def __init__(
         self,
         num_action = 20,
-        hidden_dim = [16, 32],
+        num_obs = 100,
         obs_dim = 6,
-        obs_feature_dim = 64,
-        action_dim = 10,
+        obs_feature_dim = 256,
+        action_dim = 8,
         dropout = 0.1
     ):
         super().__init__()
-        num_obs = 1
-        self.fc1 = nn.Linear(obs_dim, hidden_dim[0])  # input layer (6) -> hidden layer (16)
-        self.fc2 = nn.Linear(hidden_dim[0], hidden_dim[1])  # hidden layer (16) -> hidden layer (32)
-        self.fc3 = nn.Linear(hidden_dim[1], obs_feature_dim)  # hidden layer (32) -> output layer (64)
+        self.mlp = nn.Sequential(
+                    nn.Linear(obs_dim, 64), nn.LayerNorm(64), nn.ReLU(),
+                    nn.Linear(64, 128), nn.LayerNorm(128), nn.ReLU(),
+                    nn.Linear(128, obs_feature_dim), nn.LayerNorm(obs_feature_dim), nn.ReLU())
+        # self.fc1 = nn.Linear(obs_dim, hidden_dim[0])  # input layer (6) -> hidden layer (16)
+        # self.fc2 = nn.Linear(hidden_dim[0], hidden_dim[1])  # hidden layer (16) -> hidden layer (32)
+        # self.fc3 = nn.Linear(hidden_dim[1], obs_feature_dim)  # hidden layer (32) -> output layer (64)
         self.action_decoder = DiffusionUNetLowdimPolicy(action_dim, num_action, num_obs, obs_feature_dim)
 
     def forward(self, force, actions = None):
         # force: [batch_size, 6]
-        force = torch.relu(self.fc1(force))  # activation function for hidden layer
-        force = torch.relu(self.fc2(force))  # activation function for hidden layer
-        force = self.fc3(force)
+        # force = torch.relu(self.fc1(force))  # activation function for hidden layer
+        # force = torch.relu(self.fc2(force))  # activation function for hidden layer
+        # force = self.fc3(force)
         # force: [batch_size, obs_feature_dim]
+        force = self.mlp(force)
         if actions is not None:
             loss = self.action_decoder.compute_loss(force, actions)
             return loss
