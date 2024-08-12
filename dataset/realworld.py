@@ -117,9 +117,6 @@ class RH20T_RealWorldDataset(Dataset):
                 action_frame_ids_list = []
                 padding_mask_list = []
                 force_torque_list = []
-                # force_data = np.load(os.path.join(demo_path, 'transformed', 'force_torque.npy'), allow_pickle=True)[()][cam_id] # TODO: change to high_freq data
-                # force_data = [x['zeroed'] for x in force_data]
-
                 force_data = np.load(os.path.join(demo_path, 'transformed', 'high_freq_data.npy'), allow_pickle=True)[()][cam_id] # TODO: change to high_freq data
                 force_timestamp = [x['timestamp'] for x in force_data]
                 force_data = [x['zeroed'] for x in force_data]
@@ -133,9 +130,6 @@ class RH20T_RealWorldDataset(Dataset):
                     action_frame_ids = frame_ids[cur_idx + 1: frame_end] + frame_ids[-1:] * action_pad_after
                     obs_frame_ids_list.append(obs_frame_ids)
                     action_frame_ids_list.append(action_frame_ids)
-                    # force_torque = force_data[:1] * obs_pad_before + force_data[frame_begin: cur_idx + 1]
-                    # force_torque = np.array(force_torque).astype(np.float32)
-                    # force_torque_list.append(force_torque)
                     # get force data
                     cur_idx_force = np.argmin(np.abs(np.array(force_timestamp) - frame_ids[cur_idx]))
                     frame_begin_force = max(0, cur_idx_force - num_obs_force + 1)
@@ -311,36 +305,6 @@ class RH20T_RealWorldDataset(Dataset):
         return ret_dict
         
 
-def collate_fn(batch):
-    if type(batch[0]).__module__ == 'numpy':
-        return torch.stack([torch.from_numpy(b) for b in batch], 0)
-    elif torch.is_tensor(batch[0]):
-        return torch.stack(batch, 0)
-    elif isinstance(batch[0], container_abcs.Mapping):
-        ret_dict = {}
-        for key in batch[0]:
-            if key in TO_TENSOR_KEYS:
-                ret_dict[key] = collate_fn([d[key] for d in batch])
-            else:
-                ret_dict[key] = [d[key] for d in batch]
-        coords_batch = ret_dict['input_coords_list']
-        feats_batch = ret_dict['input_feats_list']
-        coords_batch, feats_batch = ME.utils.sparse_collate(coords_batch, feats_batch)
-        ret_dict['input_coords_list'] = coords_batch
-        ret_dict['input_feats_list'] = feats_batch
-        return ret_dict
-    elif isinstance(batch[0], container_abcs.Sequence):
-        return [sample for b in batch for sample in b]
-    
-    raise TypeError("batch must contain tensors, dicts or lists; found {}".format(type(batch[0])))
-
-
-def decode_gripper_width(gripper_width):
-    return gripper_width / 1000. * 0.095
-
-
-
-
 class RealWorldDataset(Dataset):
     """
     Real-world Dataset.
@@ -350,6 +314,7 @@ class RealWorldDataset(Dataset):
         path, 
         split = 'train', 
         num_obs = 1,
+        num_obs_force = 100,
         num_action = 20, 
         voxel_size = 0.005,
         cam_ids = ['750612070851', '035622060973'],
@@ -367,7 +332,9 @@ class RealWorldDataset(Dataset):
 
         self.path = path
         self.split = split
-        self.data_path = os.path.join(path, split)
+        # self.data_path = os.path.join(path, split)
+        self.data_path = os.path.join(path, 'train')
+
         self.calib_path = os.path.join(path, "calib")
         self.num_obs = num_obs
         self.num_action = num_action
@@ -391,6 +358,8 @@ class RealWorldDataset(Dataset):
         self.calib_timestamp = []
         self.obs_frame_ids = []
         self.action_frame_ids = []
+        self.force_torque_raw_list = []
+        self.tcp_base_list = []
         self.projectors = {}
         if split == 'train':
             cur_task_ids = [tid for tid in self.all_demos if 'scene_0009' not in tid]
@@ -421,6 +390,13 @@ class RealWorldDataset(Dataset):
                 obs_frame_ids_list = []
                 action_frame_ids_list = []
                 padding_mask_list = []
+                force_torque_raw_list = []
+                tcp_base_list = []
+                force_torque_tcp_joint_timestamp = np.load(os.path.join(demo_path, 'high_freq_data', 'force_torque_tcp_joint_timestamp.npy'))
+                high_freq_timestamp = force_torque_tcp_joint_timestamp[:, -1]
+                force_torque_raw_data = force_torque_tcp_joint_timestamp[:, :6]
+                tcp_base_data = force_torque_tcp_joint_timestamp[:, 6:13]
+
 
                 for cur_idx in range(len(frame_ids) - 1):
                     obs_pad_before = max(0, num_obs - cur_idx - 1)
@@ -431,13 +407,23 @@ class RealWorldDataset(Dataset):
                     action_frame_ids = frame_ids[cur_idx + 1: frame_end] + frame_ids[-1:] * action_pad_after
                     obs_frame_ids_list.append(obs_frame_ids)
                     action_frame_ids_list.append(action_frame_ids)
-                
+                    # get force data
+                    cur_idx_force = np.argmin(np.abs(high_freq_timestamp - frame_ids[cur_idx]))
+                    frame_begin_force = max(0, cur_idx_force - num_obs_force + 1)
+                    force_torque = force_torque_raw_data[frame_begin_force: cur_idx_force + 1]
+                    tcp_base = tcp_base_data[frame_begin_force: cur_idx_force + 1]
+                    force_torque = np.array(force_torque).astype(np.float32)
+                    tcp_base = np.array(tcp_base).astype(np.float32)
+                    force_torque_raw_list.append(force_torque)
+                    tcp_base_list.append(tcp_base)
                 self.task_names += [self.all_demos[i]] * len(obs_frame_ids_list)
                 self.data_paths += [demo_path] * len(obs_frame_ids_list)
                 self.cam_ids += [cam_id] * len(obs_frame_ids_list)
                 self.calib_timestamp += [calib_timestamp] * len(obs_frame_ids_list)
                 self.obs_frame_ids += obs_frame_ids_list
                 self.action_frame_ids += action_frame_ids_list
+                self.force_torque_raw_list += force_torque_raw_list
+                self.tcp_base_list += tcp_base_list
         
     def __len__(self):
         return len(self.obs_frame_ids)
@@ -457,6 +443,11 @@ class RealWorldDataset(Dataset):
         tcp_list[:, :3] = (tcp_list[:, :3] - TRANS_MIN) / (TRANS_MAX - TRANS_MIN) * 2 - 1
         tcp_list[:, -1] = tcp_list[:, -1] / MAX_GRIPPER_WIDTH * 2 - 1
         return tcp_list
+
+    def _normalize_force(self, force_list):
+        ''' force_list: [T, 6]'''
+        force_list = (force_list - FORCE_MIN) / (FORCE_MAX - FORCE_MIN) * 2 - 1
+        return force_list
 
     def load_point_cloud(self, colors, depths, cam_id):
         h, w = depths.shape
@@ -571,19 +562,39 @@ class RealWorldDataset(Dataset):
             input_coords_list.append(coords)
             input_feats_list.append(cloud.astype(np.float32))
 
+        # force torque data
+        force_torque_list = self.force_torque_raw_list[index].astype(np.float32)
+        tcp_base_list = self.tcp_base_list[index].astype(np.float32)
+        force_torque_base_list = [projector.project_force_to_base_coord(tcp, force) for tcp, force in zip(tcp_base_list, force_torque_list)]
+        force_torque_cam_list = [projector.project_force_to_camera_coord(tcp, force, cam_id) for tcp, force in zip(tcp_base_list, force_torque_list)]
+        force_torque_base_list = np.array(force_torque_base_list).astype(np.float32)
+        force_torque_cam_list = np.array(force_torque_cam_list).astype(np.float32)
+        force_torque_std = np.std(force_torque_cam_list, axis = 0)
+
+        # normalize force torque
+        force_torque_cam_normalized = self._normalize_force(force_torque_cam_list.copy())
+        force_torque_base_normalized = self._normalize_force(force_torque_base_list.copy())
+
         # convert to torch
         actions = torch.from_numpy(actions).float()
         actions_normalized = torch.from_numpy(actions_normalized).float()
+        
+        force_torque_cam_list = torch.from_numpy(force_torque_cam_list).float()
+        force_torque_cam_normalized = torch.from_numpy(force_torque_cam_normalized).float()
+
 
         ret_dict = {
             'input_coords_list': input_coords_list,
             'input_feats_list': input_feats_list,
+            'input_force_list': force_torque_cam_normalized,
+            'input_force_list_std': force_torque_std,
+            'input_force_list_normalized': force_torque_cam_normalized,
             'action': actions,
             'action_normalized': actions_normalized,
 
             'task_name': self.task_names[index],
             'data_path': data_path,
-            'obs_frame_ids': obs_frame_ids,
+            'action_frame_ids': action_frame_ids,
             'cam_id': cam_id,
         }
         
@@ -619,3 +630,16 @@ def collate_fn(batch):
 
 def decode_gripper_width(gripper_width):
     return gripper_width / 1000. * 0.095
+
+if __name__ == '__main__':
+    dataset = RealWorldDataset(
+        path = '/aidata/zihao/data/realdata_sampled_20240713')
+    print(len(dataset))
+    force_std = []
+    for i in tqdm(range(len(dataset))):
+        ret_dict = dataset[i]
+        std_value = ret_dict['input_force_list']
+        force_std.append(std_value)
+    count = np.sum(np.max(force_std, axis=1) > 3)
+    print('count:', count)
+    # print(dataset[0]['input_coords_list'].shape)

@@ -23,6 +23,6 @@ def plot_history(train_history, num_epochs, ckpt_dir, seed):
 def sync_loss(loss, device):
     t = [loss]
     t = torch.tensor(t, dtype = torch.float64, device = device)
-    dist.barrier()
-    dist.all_reduce(t, op = torch.distributed.ReduceOp.AVG)
+    # dist.barrier()
+    # dist.all_reduce(t, op = torch.distributed.ReduceOp.AVG)
     return t[0]

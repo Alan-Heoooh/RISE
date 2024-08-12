@@ -16,8 +16,8 @@ from copy import deepcopy
 from easydict import EasyDict as edict
 from diffusers.optimization import get_cosine_schedule_with_warmup
 
-from dataset.realworld import RealWorldDataset, collate_fn
-from policy import RISE, MLPDiffusion
+from dataset.realworld import RealWorldDataset, collate_fn, RH20T_RealWorldDataset
+from policy import RISE, MLPDiffusion, ForceRISE, ForceRISE2
 # from eval_agent import Agent
 from utils.constants import *
 from utils.training import set_seed
@@ -144,15 +144,17 @@ def get_offset(args_override):
     print("Checkpoint {} loaded.".format(args.ckpt))
 
     # offset policy
-    print("Loading MLPDiffusion policy ...")
-    offset_policy = MLPDiffusion(
+    print("Loading ForceRISE policy ...")
+    offset_policy = ForceRISE2(
         num_action = args.num_action,
-        hidden_dim = [16, 32],
-        num_obs= 100,
-        obs_dim = 6,
-        obs_feature_dim = args.force_feature_dim,
+        input_dim = 6,
+        obs_feature_dim = args.obs_feature_dim,
         action_dim = 10,
-        dropout = 0.1
+        hidden_dim = args.hidden_dim,
+        nheads = args.nheads,
+        num_encoder_layers = args.num_encoder_layers,
+        num_decoder_layers = args.num_decoder_layers,
+        dropout = args.dropout
     ).to(device)
 
     # load offset checkpoint
@@ -165,7 +167,7 @@ def get_offset(args_override):
 
     dataset = RealWorldDataset(
         path = args.data_path,
-        split = 'train',
+        split = 'val',
         num_obs = 1,
         num_obs_force= 100,
         num_action = args.num_action,
@@ -182,14 +184,9 @@ def get_offset(args_override):
         offset_policy.eval()
         cam_id = '750612070851'
         actions = []
-        start_step = 200
+        start_step = 0
         for i in range(start_step, start_step+args.max_steps):
             ret_dict = dataset[i]
-            data_path = ret_dict["data_path"]
-            with open(os.path.join(data_path, "metadata.json"), "r") as f:
-                meta = json.load(f)
-            calib_timestamp = meta["calib"]
-            projector = Projector(os.path.join(args.calib, str(calib_timestamp)))
             if i % args.num_action == 0:
                 feats = torch.tensor(ret_dict['input_feats_list'][0])
                 coords = torch.tensor(ret_dict['input_coords_list'][0])
@@ -200,13 +197,13 @@ def get_offset(args_override):
                 pred_raw_action = policy(cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
                 rise_action = unnormalize_action(pred_raw_action) # cam coordinate 
                 # load offset action
-                force_torque = torch.tensor(ret_dict['input_force_list'])
+                force_torque = ret_dict['input_force_list'].unsqueeze(0)
                 force_torque = force_torque.to(device)
-                # print(force_torque.shape)
-                pred_offset_action = offset_policy(force_torque, actions = None).squeeze(0).cpu().numpy()
-                offset_action = unnormalize_offset_action(pred_offset_action)
+                # forcerise action
+                pred_raw_force_action = offset_policy(force_torque, cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
+                force_action = unnormalize_action(pred_raw_force_action)
                 # final action
-                action = rise_action - offset_action
+                action = force_action
                 gt_action = ret_dict['action'].squeeze(0).cpu().numpy()
                 if args.vis:
                     print("Show cloud ...")
@@ -230,18 +227,18 @@ def get_offset(args_override):
                         tcp_vis_gt.paint_uniform_color([0.0, 0.0, 1.0]) # set color to blue
                         tcp_vis_gt_list.append(tcp_vis_gt)
                     # Mean position error of action and gt_action
-                    mean_pos_error = np.sum(np.linalg.norm(action[:, :3] - gt_action[:, :3], axis = 1))
-                    mean_rise_pos_error = np.sum(np.linalg.norm(rise_action[:, :3] - gt_action[:, :3], axis = 1))
-                    mean_angle_error = np.sum(np.linalg.norm(action[:, 3:10] - gt_action[:, 3:10], axis = 1))
-                    mean_rise_angle_error = np.sum(np.linalg.norm(rise_action[:, 3:10] - gt_action[:, 3:10], axis = 1))
-                    print("Mean position error: ", mean_pos_error)
-                    print("Mean rise position error: ", mean_rise_pos_error)
-                    print("Mean angle error: ", mean_angle_error)
-                    print("Mean rise angle error: ", mean_rise_angle_error)
-                    mean_pos_error_total += mean_pos_error
-                    mean_rise_pos_error_total += mean_rise_pos_error
+                    # mean_pos_error = np.sum(np.linalg.norm(action[:, :3] - gt_action[:, :3], axis = 1))
+                    # mean_rise_pos_error = np.sum(np.linalg.norm(rise_action[:, :3] - gt_action[:, :3], axis = 1))
+                    # mean_angle_error = np.sum(np.linalg.norm(action[:, 3:10] - gt_action[:, 3:10], axis = 1))
+                    # mean_rise_angle_error = np.sum(np.linalg.norm(rise_action[:, 3:10] - gt_action[:, 3:10], axis = 1))
+                    # print("Mean position error: ", mean_pos_error)
+                    # print("Mean rise position error: ", mean_rise_pos_error)
+                    # print("Mean angle error: ", mean_angle_error)
+                    # print("Mean rise angle error: ", mean_rise_angle_error)
+                    # mean_pos_error_total += mean_pos_error
+                    # mean_rise_pos_error_total += mean_rise_pos_error
 
-                    # o3d.visualization.draw_geometries([pcd, *tcp_vis_list, *tcp_vis_rise_list, *tcp_vis_gt_list])
+                    o3d.visualization.draw_geometries([pcd, *tcp_vis_list, *tcp_vis_rise_list, *tcp_vis_gt_list])
                 ensemble_buffer.add_action(action, i)
 
             # get step action from ensemble buffer

@@ -28,7 +28,6 @@ from utils.transformation import rotation_transform
 
 default_args = edict({
     "ckpt": None,
-    "calib": "calib/",
     "num_action": 20,
     "num_inference_step": 20,
     "voxel_size": 0.005,
@@ -39,9 +38,7 @@ default_args = edict({
     "num_decoder_layers": 1,
     "dim_feedforward": 2048,
     "dropout": 0.1,
-    "max_steps": 300,
     "seed": 233,
-    "vis": False,
     "discretize_rotation": True,
     "ensemble_mode": "new"
 })
@@ -135,7 +132,6 @@ def get_offset(args_override):
     policy.load_state_dict(torch.load(args.ckpt, map_location = device), strict = False)
     print("Checkpoint {} loaded.".format(args.ckpt))
 
-    # projector = Projector(os.path.join(args.calib, str(calib_timestamp)))
     ensemble_buffer = EnsembleBuffer(mode = args.ensemble_mode)
 
     dataset = RealWorldDataset(
@@ -144,26 +140,17 @@ def get_offset(args_override):
         num_obs = 1,
         num_action = args.num_action,
         voxel_size = args.voxel_size,
-        # aug = True,
-        # aug_jitter = True, 
         with_cloud = False
     )
     print(len(dataset))
 
     offsets = {}
+    gt_action_buffer = []
+    action_frame_ids = []
     with torch.inference_mode():
         policy.eval()
         for i in tqdm(range(len(dataset))):
             ret_dict = dataset[i]
-            task_name = ret_dict["task_name"]
-            data_path = ret_dict["data_path"]
-            timestamp = ret_dict['obs_frame_ids'][0]
-            cam_id = ret_dict['cam_id']
-
-            # with open(os.path.join(data_path, "metadata.json"), "r") as f:
-                # meta = json.load(f)
-            # calib_timestamp = meta["calib"]
-            # projector = Projector(os.path.join(args.calib, str(calib_timestamp)))
             if i % args.num_action == 0:
                 feats = torch.tensor(ret_dict['input_feats_list'][0])
                 coords = torch.tensor(ret_dict['input_coords_list'][0])
@@ -173,22 +160,24 @@ def get_offset(args_override):
                 pred_raw_action = policy(cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
                 action = unnormalize_action(pred_raw_action) # cam coordinate 
                 ensemble_buffer.add_action(action, i)
+                # gt_action
+                assert len(gt_action_buffer) == 0, "gt_action_buffer is not empty."
+                gt_action_buffer += ret_dict['action']
+                action_frame_ids += ret_dict['action_frame_ids']
+                task_name = ret_dict["task_name"]
+                cam_id = ret_dict['cam_id']
+
             # get step action from ensemble buffer
             step_action = ensemble_buffer.get_action()
             if step_action is None:   # no action in the buffer => no movement.
                 continue
-            
-            step_tcp = step_action[:-1]
-            step_width = step_action[-1]
-            # print("Original action: ", ret_dict['action'][0])
-            # print("Predicted action: ", step_action)
-            # print("Action:", ret_dict['action'])
+            gt_action = gt_action_buffer.pop(0).numpy()
+            action_frame = action_frame_ids.pop(0)
             offset = {
                 "cam_id": cam_id,
-                "timestamp": timestamp,
-                "offset": step_action - ret_dict['action'][0].numpy()
+                "timestamp": action_frame,
+                "offset": step_action - gt_action
             }
-            # print(f"action offset[{i}]:", offset)
             if task_name not in offsets:
                 offsets[task_name] = []
             offsets[task_name].append(offset)
@@ -199,7 +188,6 @@ def get_offset(args_override):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', action = 'store', type = str, help = 'checkpoint path', required = True)
-    parser.add_argument('--calib', action = 'store', type = str, help = 'calibration path', required = True)
     parser.add_argument('--data_path', action = 'store', type = str, help = 'data path', required = True)
     parser.add_argument('--offset_path', action = 'store', type = str, help = 'offset path', required = True)
     parser.add_argument('--num_action', action = 'store', type = int, help = 'number of action steps', required = False, default = 20)
@@ -212,9 +200,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_decoder_layers', action = 'store', type = int, help = 'number of decoder layers', required = False, default = 1)
     parser.add_argument('--dim_feedforward', action = 'store', type = int, help = 'feedforward dimension', required = False, default = 2048)
     parser.add_argument('--dropout', action = 'store', type = float, help = 'dropout ratio', required = False, default = 0.1)
-    parser.add_argument('--max_steps', action = 'store', type = int, help = 'max steps for evaluation', required = False, default = 300)
     parser.add_argument('--seed', action = 'store', type = int, help = 'seed', required = False, default = 233)
-    parser.add_argument('--vis', action = 'store_true', help = 'add visualization during evaluation')
     parser.add_argument('--discretize_rotation', action = 'store_true', help = 'whether to discretize rotation process.')
     parser.add_argument('--ensemble_mode', action = 'store', type = str, help = 'temporal ensemble mode', required = False, default = 'new')
 

@@ -1,10 +1,6 @@
 import numpy as np
 
-# from ..utils.constants import *
-# from ..utils.constants import *
-
-
-TO_TENSOR_KEYS = ['input_coords_list', 'input_feats_list', 'action', 'action_normalized']
+TO_TENSOR_KEYS = ['input_coords_list', 'input_feats_list', 'input_force_list', 'input_force_list_normalized' 'action', 'action_normalized']
 
 # camera intrinsics
 INTRINSICS = {
@@ -39,6 +35,10 @@ IMG_STD = np.array([0.229, 0.224, 0.225])
 # tcp normalization and gripper width normalization
 TRANS_MIN, TRANS_MAX = np.array([-0.35, -0.35, 0]), np.array([0.35, 0.35, 0.7]) 
 MAX_GRIPPER_WIDTH = 0.11 # meter
+
+# force normalization constants
+FORCE_MIN = np.array([-80.0, -80.0, -80.0, -10.0, -10.0, -10.0])
+FORCE_MAX = np.array([80.0, 80.0, 80.0, 10.0, 10.0, 10.0])
 
 # workspace in camera coordinate
 WORKSPACE_MIN = np.array([-0.5, -0.5, 0])

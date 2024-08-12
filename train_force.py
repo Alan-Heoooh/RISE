@@ -101,11 +101,11 @@ def main(args_override):
 
         for data in pbar:
             force_data = data['input_frame_list'].to(device)
-            # action_data = data['target_frame_tcp_normalized'].to(device)
             offset_data = data['target_offset_list_normalized'].to(device)
-            # offset_data = data['target_offset_list'].to(device)
+            force_std_data = data['input_frame_list_std']
+            if np.max(force_std_data) < 3:
+                continue
 
-            # print(force_data.shape)
             # forward
             loss = policy(force_data, offset_data)
 

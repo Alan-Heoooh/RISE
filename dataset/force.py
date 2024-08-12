@@ -7,7 +7,8 @@ import torch
 import collections.abc as container_abcs
 from torch.utils.data import Dataset
 from dataset.projector import Projector
-TO_TENSOR_KEYS = ['input_frame_list', 'input_frame_tcp_normalized', 'target_frame_tcp_normalized', 'padding_mask']
+
+TO_TENSOR_KEYS = ['input_frame_list', 'input_frame_tcp_normalized', 'target_frame_tcp_normalized', 'target_offset_list', 'target_offset_list_normalized', 'padding_mask']
 
 
 class ForceDataset(Dataset):
@@ -30,7 +31,8 @@ class ForceDataset(Dataset):
         self.num_obs = num_obs
         self.horizon = horizon
         self.top_down_view = top_down_view
-        self.data_path = os.path.join(root, split)
+        # self.data_path = os.path.join(root, split)
+        self.data_path = os.path.join(root, 'train')
         self.calib_path = os.path.join(root, 'calib')
 
         self.input_task_ids = []
@@ -266,6 +268,9 @@ class ForceDataset(Dataset):
 
         # force torque augmemtation
         input_frame_list = self._augmentation(input_frame_list)
+
+        # force torque standard deviation
+        input_frame_list_std = np.std(input_frame_list, axis=0)
         
         vis = False
         if vis:
@@ -295,10 +300,11 @@ class ForceDataset(Dataset):
 
         target_offset_list_normalized = self._normalize_offset(target_offset_list.copy())
         
-        target_offset_list = torch.from_numpy(target_offset_list).float()
-        target_offset_list_normalized = torch.from_numpy(target_offset_list_normalized).float()
+        # target_offset_list = torch.from_numpy(target_offset_list).float()
+        # target_offset_list_normalized = torch.from_numpy(target_offset_list_normalized).float()
 
         ret_dict = {'input_frame_list': input_frame_list, # force
+                    'input_frame_list_std': input_frame_list_std, # force std
                     # 'input_frame_tcp_list': input_frame_tcp_list,
                     # 'input_frame_tcp_normalized': input_frame_tcp_normalized,
                     'input_offset_list': input_offset_list, # offset
@@ -336,10 +342,6 @@ if __name__ == '__main__':
     print(dataset[0]['target_offset_list'])
     print(dataset[1000]['target_offset_list'])
     print(dataset[2000]['target_offset_list'])
-    print(dataset[0]['input_frame_list'])
-    print(dataset[1000]['input_frame_list'])
-    print(dataset[2000]['input_frame_list'])
-
     # for idx in range(10000,10005):
     #     print(f"{idx}:")
     #     print(dataset[idx]["input_offset_list"])

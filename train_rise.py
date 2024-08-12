@@ -13,7 +13,7 @@ from copy import deepcopy
 from easydict import EasyDict as edict
 from diffusers.optimization import get_cosine_schedule_with_warmup
 
-from policy import RISE
+from policy import RISE, ForceRISE, ForceRISE2, ForceRISE3
 from dataset.realworld import RealWorldDataset, collate_fn
 from utils.training import set_seed, plot_history, sync_loss
 
@@ -72,7 +72,7 @@ def train(args_override):
         voxel_size = args.voxel_size,
         aug = args.aug,
         aug_jitter = args.aug_jitter, 
-        with_cloud = False
+        with_cloud = False,
     )
     sampler = torch.utils.data.distributed.DistributedSampler(
         dataset, 
@@ -90,17 +90,34 @@ def train(args_override):
 
     # policy
     if RANK == 0: print("Loading policy ...")
-    policy = RISE(
-        num_action = args.num_action,
-        input_dim = 6,
-        obs_feature_dim = args.obs_feature_dim,
-        action_dim = 10,
-        hidden_dim = args.hidden_dim,
-        nheads = args.nheads,
-        num_encoder_layers = args.num_encoder_layers,
-        num_decoder_layers = args.num_decoder_layers,
-        dropout = args.dropout
-    ).to(device)
+    if args.policy == 'ForceRISE3':
+        policy = ForceRISE3(
+            num_action = args.num_action,
+            input_dim = 6,
+            obs_feature_dim = args.obs_feature_dim,
+            action_dim = 10,
+            hidden_dim = args.hidden_dim,
+            nheads = args.nheads,
+            num_encoder_layers = args.num_encoder_layers,
+            num_decoder_layers = args.num_decoder_layers,
+            dropout = args.dropout,
+            num_obs_force = 100
+        ).to(device)
+    elif args.policy == 'ForceRISE2':
+        policy = ForceRISE2(
+            num_action = args.num_action,
+            input_dim = 6,
+            obs_feature_dim = args.obs_feature_dim,
+            action_dim = 10,
+            hidden_dim = args.hidden_dim,
+            nheads = args.nheads,
+            num_encoder_layers = args.num_encoder_layers,
+            num_decoder_layers = args.num_decoder_layers,
+            dropout = args.dropout,
+            num_obs_force = 100
+        ).to(device)
+    else:
+        raise NotImplementedError("Policy {} not implemented.".format(args.policy))
     if RANK == 0:
         n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
         print("Number of parameters: {:.2f}M".format(n_parameters / 1e6))
@@ -148,11 +165,16 @@ def train(args_override):
             # cloud data processing
             cloud_coords = data['input_coords_list']
             cloud_feats = data['input_feats_list']
+            force_data = data['input_force_list'] # normalized force data
             action_data = data['action_normalized']
-            cloud_feats, cloud_coords, action_data = cloud_feats.to(device), cloud_coords.to(device), action_data.to(device)
+            force_std_data = data['input_force_list_std']
+            cloud_feats, cloud_coords, action_data, force_data = cloud_feats.to(device), cloud_coords.to(device), action_data.to(device), force_data.to(device)
             cloud_data = ME.SparseTensor(cloud_feats, cloud_coords)
             # forward
-            loss = policy(cloud_data, action_data, batch_size = action_data.shape[0])
+            if args.policy == 'ForceRISE3':
+                loss = policy(force_data, force_std_data, cloud_data, action_data, batch_size = action_data.shape[0])
+            else:
+                loss = policy(force_data, cloud_data, action_data, batch_size = action_data.shape[0])
             # backward
             loss.backward()
             optimizer.step()
@@ -183,6 +205,7 @@ def train(args_override):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', action = 'store', type = str, help = 'data path', required = True)
+    parser.add_argument('--policy', action = 'store', type = str, help = 'policy name', required = True)
     parser.add_argument('--aug', action = 'store_true', help = 'whether to add 3D data augmentation')
     parser.add_argument('--aug_jitter', action = 'store_true', help = 'whether to add color jitter augmentation')
     parser.add_argument('--num_action', action = 'store', type = int, help = 'number of action steps', required = False, default = 20)

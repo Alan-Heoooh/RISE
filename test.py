@@ -1,44 +1,56 @@
-import numpy as np
-from dataset.projector import Projector
 import os
-import json
-# Load the .npy file
-# data = np.load('/aidata/RH100T_cfg1/task_0215_user_0014_scene_0001_cfg_0001/cam_750612070851/force_torque/1635770079514.npy', allow_pickle=True)
+import matplotlib.pyplot as plt
+import numpy as np
+from transforms3d.quaternions import quat2mat
+from dataset.projector import Projector
 
-# data_path = '/aidata/RH100T_cfg1'
-# task_id = 'task_0215_user_0014_scene_0001_cfg_0001'
-# calib_path = '/aidata/RH100T_cfg1/calib'
-# cam_id = '750612070851'
-# with open(os.path.join(data_path, task_id, "metadata.json"), "r") as f:
-#     meta = json.load(f)
-# calib_timestamp = meta["calib"]
-# projector = Projector(os.path.join(calib_path, str(calib_timestamp)))
-# force_torque_base = np.load(os.path.join(data_path, task_id, "transformed", "force_torque_base.npy"), allow_pickle = True)[()][cam_id][0]
-# force_torque_cam = np.load(os.path.join(data_path, task_id, "transformed", "force_torque.npy"), allow_pickle = True)[()][cam_id][0]
-# tcp_base = np.load(os.path.join(data_path, task_id, "transformed", "tcp_base.npy"), allow_pickle = True)[()][cam_id][0]
-# print(force_torque_base)
-# print(force_torque_cam)
-# print(tcp_base)
+# Load force data
+data = np.load("/aidata/zihao/data/realdata_sampled_20240713/train/task_0230_user_0099_scene_0002_cfg_0001/high_freq_data/force_torque_tcp_joint_timestamp.npy", allow_pickle=True)
+force_data = [x[:6] for x in data] # raw force data
+tcp_base = [x[6:13] for x in data]
+calib_path = '/aidata/zihao/data/realdata_sampled_20240713/calib/1720840800151'
+projector = Projector(calib_path)
+cam = '750612070851'
 
+# Project force data
+force_data_base = [projector.project_force_to_base_coord(tcp, force) for tcp, force in zip(tcp_base, force_data)]
+force_data_cam = [projector.project_force_to_camera_coord(tcp, force, cam) for tcp, force in zip(tcp_base, force_data)]
 
-# test_force_cam = projector.project_force_to_camera_coord(tcp_base['tcp'], force_torque_base['raw'], cam_id)
-# print(test_force_cam)
+force_data = force_data_base
+force_x = [x[0] for x in force_data]
+force_y = [x[1] for x in force_data]
+force_z = [x[2] for x in force_data]
+frame_id_list_force = [x[-1] for x in data]
 
-data_path = '/aidata/zihao/data/realdata_sampled_20240713'
-cam_id = '750612070851'
-calib_timestamp = "1720840800151"
-calib_path = '/aidata/zihao/data/realdata_sampled_20240713/calib'
-projector = Projector(os.path.join(calib_path, str(calib_timestamp)))
+# Load offset data
+offset_path = '/aidata/zihao/data/offset/offset_8_0727.npy'
+offsets = np.load(offset_path, allow_pickle=True).item()
+task_name = 'task_0230_user_0099_scene_0002_cfg_0001'
+offset_data = [x for x in offsets[task_name] if x['cam_id'] == cam]
+offset = [x['offset'] for x in offset_data]
+offset_x = [x[0] for x in offset]
+offset_y = [x[1] for x in offset]
+offset_z = [x[2] for x in offset]
+frame_id_list_offset = [x['timestamp'] for x in offset_data]
 
+# Plot force and offset data
+plt.figure(figsize=(10, 10))
 
-force_torque_tcp_joint_raw = np.load('/aidata/zihao/data/realdata_sampled_20240713/train/task_0230_user_0099_scene_0001_cfg_0001/high_freq_data/force_torque_tcp_joint_timestamp.npy', allow_pickle=True)
-tcp_base = force_torque_tcp_joint_raw[300][6:13]
-print(tcp_base)
-# print(force_torque_raw[656])
-force_torque_raw = force_torque_tcp_joint_raw[300][:6]
-print(force_torque_raw)
-test_base = projector.project_force_to_base_coord(tcp_base, force_torque_raw)
-print(test_base)
-test_cam = projector.project_force_to_camera_coord(tcp_base, force_torque_raw, cam_id)
-print(test_cam)
-# print(projector.project_force_to_base_coord(tcp_base['tcp'], force_torque_raw[650][:6]))
+plt.subplot(2, 1, 1)
+plt.plot(frame_id_list_force, force_x, label='Force X', color='red')
+plt.plot(frame_id_list_force, force_y, label='Force Y', color='green')
+plt.plot(frame_id_list_force, force_z, label='Force Z', color='blue')
+plt.title('Force Components vs Time')
+plt.xlabel('Time')
+plt.ylabel('Force Components')
+plt.legend()
+plt.subplot(2, 1, 2)
+plt.plot(frame_id_list_offset, offset_x, label='Offset X', color='red')
+plt.plot(frame_id_list_offset, offset_y, label='Offset Y', color='green')
+plt.plot(frame_id_list_offset, offset_z, label='Offset Z', color='blue')
+plt.title('Offset Components vs Time')
+plt.xlabel('Time')
+plt.ylabel('Offset Components')
+plt.legend()
+plt.tight_layout()
+plt.show()
