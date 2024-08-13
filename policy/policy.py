@@ -188,7 +188,7 @@ class ForceRISE3(nn.Module):
             num_decoder_layers = 1,
             dim_feedforward = 2048,
             dropout = 0.1,
-            num_obs_force = 100
+            num_obs_force = 200
             ):
         super().__init__()
         num_obs = 1
@@ -204,11 +204,11 @@ class ForceRISE3(nn.Module):
 
     def forward(self, force_torque, force_torque_window_std, cloud, actions = None, batch_size = 24):
         src, pos, src_padding_mask = self.sparse_encoder(cloud, batch_size=batch_size)
-        force_torque_feature, force_torque_pos, force_torque_padding_mask = self.force_encoder(force_torque, batch_size=batch_size)
+        force_torque_feature, force_torque_pos, force_torque_padding_mask = self.force_encoder(force_torque, num_obs_feature=self.num_obs_force, batch_size=batch_size)
 
         sparse_readout = self.sparse_transformer(src, src_padding_mask, self.sparse_readout_embed.weight, pos)[-1]
         sparse_readout = sparse_readout[:, 0]
-        if np.max(force_torque_window_std) > 2.5:
+        if np.max(force_torque_window_std) > 3:
             force_readout = self.force_transformer(force_torque_feature, force_torque_padding_mask, self.force_readout_embed.weight, force_torque_pos)[-1]
             force_readout = force_readout[:, 0]
         else:

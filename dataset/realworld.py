@@ -633,13 +633,9 @@ def decode_gripper_width(gripper_width):
 
 if __name__ == '__main__':
     dataset = RealWorldDataset(
-        path = '/aidata/zihao/data/realdata_sampled_20240713')
+        path = '/aidata/zihao/data/realdata_sampled_20240713',
+        num_obs_force=200)
     print(len(dataset))
-    force_std = []
-    for i in tqdm(range(len(dataset))):
-        ret_dict = dataset[i]
-        std_value = ret_dict['input_force_list']
-        force_std.append(std_value)
-    count = np.sum(np.max(force_std, axis=1) > 3)
-    print('count:', count)
+    print(dataset[0]['input_force_list'].shape)
+    print(dataset[0]['input_force_list_std'].shape)
     # print(dataset[0]['input_coords_list'].shape)

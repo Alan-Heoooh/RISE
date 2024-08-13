@@ -68,6 +68,7 @@ def train(args_override):
         path = args.data_path,
         split = 'train',
         num_obs = 1,
+        num_obs_force = args.num_obs_force,
         num_action = args.num_action,
         voxel_size = args.voxel_size,
         aug = args.aug,
@@ -101,7 +102,7 @@ def train(args_override):
             num_encoder_layers = args.num_encoder_layers,
             num_decoder_layers = args.num_decoder_layers,
             dropout = args.dropout,
-            num_obs_force = 100
+            num_obs_force = args.num_obs_force
         ).to(device)
     elif args.policy == 'ForceRISE2':
         policy = ForceRISE2(
@@ -114,7 +115,7 @@ def train(args_override):
             num_encoder_layers = args.num_encoder_layers,
             num_decoder_layers = args.num_decoder_layers,
             dropout = args.dropout,
-            num_obs_force = 100
+            num_obs_force = args.num_obs_force
         ).to(device)
     else:
         raise NotImplementedError("Policy {} not implemented.".format(args.policy))
@@ -208,6 +209,7 @@ if __name__ == '__main__':
     parser.add_argument('--policy', action = 'store', type = str, help = 'policy name', required = True)
     parser.add_argument('--aug', action = 'store_true', help = 'whether to add 3D data augmentation')
     parser.add_argument('--aug_jitter', action = 'store_true', help = 'whether to add color jitter augmentation')
+    parser.add_argument('--num_obs_force', action= 'store', type= int, help='number of force observation steps', required=False, default= 100)
     parser.add_argument('--num_action', action = 'store', type = int, help = 'number of action steps', required = False, default = 20)
     parser.add_argument('--voxel_size', action = 'store', type = float, help = 'voxel size', required = False, default = 0.005)
     parser.add_argument('--obs_feature_dim', action = 'store', type = int, help = 'observation feature dimension', required = False, default = 512)
