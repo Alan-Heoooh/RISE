@@ -208,7 +208,7 @@ class ForceRISE3(nn.Module):
 
         sparse_readout = self.sparse_transformer(src, src_padding_mask, self.sparse_readout_embed.weight, pos)[-1]
         sparse_readout = sparse_readout[:, 0]
-        if np.max(force_torque_window_std) > 3:
+        if np.max(force_torque_window_std) > 2.5:
             force_readout = self.force_transformer(force_torque_feature, force_torque_padding_mask, self.force_readout_embed.weight, force_torque_pos)[-1]
             force_readout = force_readout[:, 0]
         else:

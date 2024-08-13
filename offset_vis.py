@@ -17,7 +17,7 @@ from easydict import EasyDict as edict
 from diffusers.optimization import get_cosine_schedule_with_warmup
 
 from dataset.realworld import RealWorldDataset, collate_fn, RH20T_RealWorldDataset
-from policy import RISE, MLPDiffusion, ForceRISE, ForceRISE2
+from policy import RISE, MLPDiffusion, ForceRISE, ForceRISE2, ForceRISE3
 # from eval_agent import Agent
 from utils.constants import *
 from utils.training import set_seed
@@ -145,17 +145,32 @@ def get_offset(args_override):
 
     # offset policy
     print("Loading ForceRISE policy ...")
-    offset_policy = ForceRISE2(
-        num_action = args.num_action,
-        input_dim = 6,
-        obs_feature_dim = args.obs_feature_dim,
-        action_dim = 10,
-        hidden_dim = args.hidden_dim,
-        nheads = args.nheads,
-        num_encoder_layers = args.num_encoder_layers,
-        num_decoder_layers = args.num_decoder_layers,
-        dropout = args.dropout
-    ).to(device)
+    if args.policy == 'ForceRISE2':
+        offset_policy = ForceRISE2(
+            num_action = args.num_action,
+            input_dim = 6,
+            obs_feature_dim = args.obs_feature_dim,
+            action_dim = 10,
+            hidden_dim = args.hidden_dim,
+            nheads = args.nheads,
+            num_encoder_layers = args.num_encoder_layers,
+            num_decoder_layers = args.num_decoder_layers,
+            dropout = args.dropout
+        ).to(device)
+    elif args.policy == 'ForceRISE3':
+        offset_policy = ForceRISE3(
+            num_action= args.num_action,
+            input_dim = 6,
+            obs_feature_dim = args.obs_feature_dim,
+            action_dim = 10,
+            hidden_dim = args.hidden_dim,
+            nheads = args.nheads,
+            num_encoder_layers = args.num_encoder_layers,
+            num_decoder_layers = args.num_decoder_layers,
+            dropout = args.dropout
+        ).to(device)
+    else:
+        raise NotImplementedError("Policy {} not implemented.".format(args.policy))
 
     # load offset checkpoint
     assert args.offset_ckpt is not None, "Please provide the offset checkpoint to evaluate."
@@ -199,8 +214,14 @@ def get_offset(args_override):
                 # load offset action
                 force_torque = ret_dict['input_force_list'].unsqueeze(0)
                 force_torque = force_torque.to(device)
+                force_torque_std = ret_dict['input_force_list_std']
                 # forcerise action
-                pred_raw_force_action = offset_policy(force_torque, cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
+                if args.policy == 'ForceRISE2':
+                    pred_raw_force_action = offset_policy(force_torque, cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
+                elif args.policy == 'ForceRISE3':
+                    pred_raw_force_action = offset_policy(force_torque, force_torque_std, cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
+                else:
+                    raise NotImplementedError("Policy {} not implemented.".format(args.policy))
                 force_action = unnormalize_action(pred_raw_force_action)
                 # final action
                 action = force_action
@@ -256,7 +277,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt', action = 'store', type = str, help = 'checkpoint path', required = True)
     parser.add_argument('--offset_ckpt', action = 'store', type = str, help = 'checkpoint path', required = True)
-
+    parser.add_argument('--policy', action = 'store', type = str, help='type of policy', required=True)
     parser.add_argument('--calib', action = 'store', type = str, help = 'calibration path', required = True)
     parser.add_argument('--data_path', action = 'store', type = str, help = 'data path', required = True)
     
