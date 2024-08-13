@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from transforms3d.quaternions import quat2mat
 from dataset.projector import Projector
-from dataset.force import ForceDataset
+# from dataset.force import ForceDataset
+from dataset.force_new import ForceDataset
 from tqdm import tqdm
 
 def plot_scene_force():
@@ -37,10 +38,9 @@ def plot_scene_force():
 def plot_window_force_variation():
     dataset = ForceDataset(
         root='/aidata/zihao/data/realdata_sampled_20240713', 
-        offset_path='/aidata/zihao/data/offset/offset_8_0727.npy',
-        split='train',
-        num_obs=100, 
-        horizon=120, 
+        split='val',
+        num_obs=300, 
+        horizon=320, 
         selected_tasks=['task_0230'], 
         frame_sample_step=1, 
         selected_cam_ids = ['035622060973'])
@@ -73,4 +73,4 @@ def plot_window_force_variation():
 
 
 if __name__ == '__main__':
-    plot_scene_force()
+    plot_window_force_variation()

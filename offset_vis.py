@@ -199,9 +199,12 @@ def get_offset(args_override):
         offset_policy.eval()
         cam_id = '750612070851'
         actions = []
-        start_step = 0
+        start_step = 15
+        is_force_vary = False
         for i in range(start_step, start_step+args.max_steps):
             ret_dict = dataset[i]
+            if np.max(ret_dict['input_force_list_std']) > 3:
+                is_force_vary = True
             if i % args.num_action == 0:
                 feats = torch.tensor(ret_dict['input_feats_list'][0])
                 coords = torch.tensor(ret_dict['input_coords_list'][0])
@@ -215,6 +218,10 @@ def get_offset(args_override):
                 force_torque = ret_dict['input_force_list'].unsqueeze(0)
                 force_torque = force_torque.to(device)
                 force_torque_std = ret_dict['input_force_list_std']
+                print("force_torque_std: ", force_torque_std)
+                print("is_force_vary: ", is_force_vary)
+                is_force_vary = False
+                print("max_force_torque_std: ", np.max(force_torque_std))
                 # forcerise action
                 if args.policy == 'ForceRISE2':
                     pred_raw_force_action = offset_policy(force_torque, cloud_data, actions = None, batch_size = 1).squeeze(0).cpu().numpy()
