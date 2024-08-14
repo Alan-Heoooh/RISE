@@ -172,9 +172,10 @@ class ForceRISE2(nn.Module):
 # two Transfromer layers, one for force, one for Sparse 3D. When force data is small, apply another embedding directly to the diffusion policy.
 class ForceRISE3(nn.Module):
     '''
-    ForceRISE2 model
+    ForceRISE3 model
     Two Transformer layers, one for force, one for Sparse 3D.
     Concat readout from two Transformer layers, then feed into action decoder (diffusion model).
+    When force data changes slowly, apply another embedding directly to the diffusion policy.
     '''
     def __init__(
             self,

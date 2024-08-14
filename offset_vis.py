@@ -155,7 +155,8 @@ def get_offset(args_override):
             nheads = args.nheads,
             num_encoder_layers = args.num_encoder_layers,
             num_decoder_layers = args.num_decoder_layers,
-            dropout = args.dropout
+            dropout = args.dropout,
+            num_obs_force= args.num_obs_force
         ).to(device)
     elif args.policy == 'ForceRISE3':
         offset_policy = ForceRISE3(
@@ -167,7 +168,8 @@ def get_offset(args_override):
             nheads = args.nheads,
             num_encoder_layers = args.num_encoder_layers,
             num_decoder_layers = args.num_decoder_layers,
-            dropout = args.dropout
+            dropout = args.dropout,
+            num_obs_force= args.num_obs_force
         ).to(device)
     else:
         raise NotImplementedError("Policy {} not implemented.".format(args.policy))
@@ -184,7 +186,7 @@ def get_offset(args_override):
         path = args.data_path,
         split = 'val',
         num_obs = 1,
-        num_obs_force= 100,
+        num_obs_force= args.num_obs_force,
         num_action = args.num_action,
         voxel_size = args.voxel_size,
         # aug = True,
@@ -199,7 +201,7 @@ def get_offset(args_override):
         offset_policy.eval()
         cam_id = '750612070851'
         actions = []
-        start_step = 15
+        start_step = 0
         is_force_vary = False
         for i in range(start_step, start_step+args.max_steps):
             ret_dict = dataset[i]
@@ -287,7 +289,7 @@ if __name__ == '__main__':
     parser.add_argument('--policy', action = 'store', type = str, help='type of policy', required=True)
     parser.add_argument('--calib', action = 'store', type = str, help = 'calibration path', required = True)
     parser.add_argument('--data_path', action = 'store', type = str, help = 'data path', required = True)
-    
+    parser.add_argument('--num_obs_force', action = 'store', type = int, help = 'number of force observation steps', required = False, default = 100)
     parser.add_argument('--num_action', action = 'store', type = int, help = 'number of action steps', required = False, default = 20)
     parser.add_argument('--force_feature_dim', action = 'store', type = int, help = 'observation feature dimension', required = False, default = 64)
     parser.add_argument('--num_inference_step', action = 'store', type = int, help = 'number of inference query steps', required = False, default = 20)

@@ -39,8 +39,8 @@ def plot_window_force_variation():
     dataset = ForceDataset(
         root='/aidata/zihao/data/realdata_sampled_20240713', 
         split='val',
-        num_obs=300, 
-        horizon=320, 
+        num_obs=200, 
+        horizon=220, 
         selected_tasks=['task_0230'], 
         frame_sample_step=1, 
         selected_cam_ids = ['035622060973'])
