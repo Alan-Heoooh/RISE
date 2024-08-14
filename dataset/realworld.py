@@ -16,6 +16,7 @@ from dataset.constants import *
 from dataset.projector import Projector
 from utils.transformation import rot_trans_mat, apply_mat_to_pose, apply_mat_to_pcd, xyz_rot_transform
 
+
 class RH20T_RealWorldDataset(Dataset):
     """
     Real-world Dataset.
@@ -365,6 +366,9 @@ class RealWorldDataset(Dataset):
             cur_task_ids = [tid for tid in self.all_demos if 'scene_0009' not in tid]
         elif split == 'val':
             cur_task_ids = [tid for tid in self.all_demos if 'scene_0009' in tid]
+        
+        self.time_label = json.load(open('/home/zihao/RISE_2/dataset/label.json', 'r'))
+
         self.num_demos = len(cur_task_ids)
         for i in range(self.num_demos):
             # demo_path = os.path.join(self.data_path, self.all_demos[i])
@@ -583,12 +587,32 @@ class RealWorldDataset(Dataset):
         force_torque_cam_normalized = torch.from_numpy(force_torque_cam_normalized).float()
 
 
+        if self.num_obs == 1:
+            colors_list = colors_list[0]
+        img_process = T.Compose([
+            T.ToTensor(),
+            T.Resize((224, 224), antialias = True),
+            T.Normalize(mean = IMG_MEAN, std = IMG_STD)
+        ])
+        color_list_normalized = img_process(colors_list)
+
+        curr_frame_id = obs_frame_ids[-1]
+        # time_label = json.load(open('/home/zihao/RISE_2/dataset/label.json', 'r'))[self.task_names[index]]
+        task_name = self.task_names[index]
+        is_cut = curr_frame_id > self.time_label[task_name]['begin'] and curr_frame_id < self.time_label[task_name]['end']
+        is_cut = torch.tensor(is_cut, dtype=torch.float)
+        
         ret_dict = {
             'input_coords_list': input_coords_list,
             'input_feats_list': input_feats_list,
             'input_force_list': force_torque_cam_normalized,
             'input_force_list_std': force_torque_std,
             'input_force_list_normalized': force_torque_cam_normalized,
+
+            'input_frame_list': colors_list, # (..., 720, 1280, 3)
+            'input_frame_list_normalized': color_list_normalized, # (..., 3, 224, 224)
+            'is_cut': is_cut,
+
             'action': actions,
             'action_normalized': actions_normalized,
 
@@ -636,6 +660,8 @@ if __name__ == '__main__':
         path = '/aidata/zihao/data/realdata_sampled_20240713',
         num_obs_force=200)
     print(len(dataset))
-    print(dataset[0]['input_force_list'].shape)
-    print(dataset[0]['input_force_list_std'].shape)
+    count = 0
+    for i in range(len(dataset)):
+        print(dataset[i]['is_cut'])
+    print(count)
     # print(dataset[0]['input_coords_list'].shape)

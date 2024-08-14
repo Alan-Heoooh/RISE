@@ -20,9 +20,9 @@ def plot_scene_force():
     force_data_cam = [projector.project_force_to_camera_coord(tcp, force, cam) for tcp, force in zip(tcp_base, force_data)]
 
     force_data = force_data_base
-    force_x = [x[3] for x in data]
-    force_y = [x[4] for x in data]
-    force_z = [x[5] for x in data]
+    force_x = [x[0] for x in data]
+    force_y = [x[1] for x in data]
+    force_z = [x[2] for x in data]
     frame_id_list = [x[-1] for x in data]
 
     plt.figure()
@@ -73,4 +73,4 @@ def plot_window_force_variation():
 
 
 if __name__ == '__main__':
-    plot_window_force_variation()
+    plot_scene_force()

@@ -1,0 +1,1 @@
+python train_classifier.py --ckpt_dir /aidata/zihao_6022/ckpts/classifier_0814 --dataset_root /aidata/zihao/data/realdata_sampled_20240713 --batch_size 240 --num_epochs 10 --save_epoch 10 --seed 233 --lr 0.0001
