@@ -52,6 +52,7 @@ def main(args):
     )
     train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=20)
 
+    print("task number: ", len(dataset))
 
     # load model
     model = ResNetBinaryClassifier()
@@ -117,22 +118,6 @@ def main(args):
         os.path.join(ckpt_dir, 'ckpt_last.ckpt')
     )
     
-
-def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
-    # save training curves
-    for key in train_history[0]:
-        plot_path = os.path.join(ckpt_dir, f'train_val_{key}_seed_{seed}.png')
-        plt.figure()
-        train_values = [summary[key].item() for summary in train_history]
-        val_values = [summary[key].item() for summary in validation_history]
-        plt.plot(np.linspace(0, num_epochs-1, len(train_history)), train_values, label='train')
-        plt.plot(np.linspace(0, num_epochs-1, len(validation_history)), val_values, label='validation')
-        # plt.ylim([-0.1, 1])
-        plt.tight_layout()
-        plt.legend()
-        plt.title(key)
-        plt.savefig(plot_path)
-    print(f'Saved plots to {ckpt_dir}')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
