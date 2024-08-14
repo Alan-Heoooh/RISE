@@ -587,20 +587,20 @@ class RealWorldDataset(Dataset):
         force_torque_cam_normalized = torch.from_numpy(force_torque_cam_normalized).float()
 
 
-        if self.num_obs == 1:
-            colors_list = colors_list[0]
-        img_process = T.Compose([
-            T.ToTensor(),
-            T.Resize((224, 224), antialias = True),
-            T.Normalize(mean = IMG_MEAN, std = IMG_STD)
-        ])
-        color_list_normalized = img_process(colors_list)
+        # if self.num_obs == 1:
+        #     colors_list = colors_list[0]
+        # img_process = T.Compose([
+        #     T.ToTensor(),
+        #     T.Resize((224, 224), antialias = True),
+        #     T.Normalize(mean = IMG_MEAN, std = IMG_STD)
+        # ])
+        # color_list_normalized = img_process(colors_list)
 
-        curr_frame_id = obs_frame_ids[-1]
-        # time_label = json.load(open('/home/zihao/RISE_2/dataset/label.json', 'r'))[self.task_names[index]]
-        task_name = self.task_names[index]
-        is_cut = curr_frame_id > self.time_label[task_name]['begin'] and curr_frame_id < self.time_label[task_name]['end']
-        is_cut = torch.tensor(is_cut, dtype=torch.float)
+        # curr_frame_id = obs_frame_ids[-1]
+        # # time_label = json.load(open('/home/zihao/RISE_2/dataset/label.json', 'r'))[self.task_names[index]]
+        # task_name = self.task_names[index]
+        # is_cut = curr_frame_id > self.time_label[task_name]['begin'] and curr_frame_id < self.time_label[task_name]['end']
+        # is_cut = torch.tensor(is_cut, dtype=torch.float)
         
         ret_dict = {
             'input_coords_list': input_coords_list,
@@ -609,9 +609,9 @@ class RealWorldDataset(Dataset):
             'input_force_list_std': force_torque_std,
             'input_force_list_normalized': force_torque_cam_normalized,
 
-            'input_frame_list': colors_list, # (..., 720, 1280, 3)
-            'input_frame_list_normalized': color_list_normalized, # (..., 3, 224, 224)
-            'is_cut': is_cut,
+            # 'input_frame_list': colors_list, # (..., 720, 1280, 3)
+            # 'input_frame_list_normalized': color_list_normalized, # (..., 3, 224, 224)
+            # 'is_cut': is_cut,
 
             'action': actions,
             'action_normalized': actions_normalized,

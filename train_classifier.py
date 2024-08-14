@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 from tqdm import tqdm
 from dataset.realworld import RealWorldDataset, collate_fn
+from dataset.classifier_dataset import ClassifierDataset
 from utils.training import set_seed, plot_history, sync_loss
 
 class ResNetBinaryClassifier(nn.Module):
@@ -44,12 +45,12 @@ def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # load dataset
-    dataset = RealWorldDataset(
+    dataset = ClassifierDataset(
         path=dataset_root,
         split='train',
         num_obs=1,
     )
-    train_loader = DataLoader(dataset, batch_size=batch_size, collate_fn= collate_fn, shuffle=True, num_workers=1)
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=20)
 
 
     # load model
@@ -70,6 +71,9 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
         start_epoch = checkpoint['epoch']
 
+    if not os.path.exists(ckpt_dir):
+        os.makedirs(ckpt_dir)
+
     # train
     train_history = []
     model.train()
@@ -83,10 +87,11 @@ def main(args):
         for data in pbar:
             input_frame_list_normalized = data['input_frame_list_normalized']
             is_cut = data['is_cut']
-            input_frame_list_normalized, is_cut = input_frame_list_normalized.to(device), is_cut.to(device)
+            input_frame_list_normalized = input_frame_list_normalized.to(device)
+            is_cut = is_cut.to(device)
 
             # forward
-            output = model(input_frame_list_normalized)
+            output = model(input_frame_list_normalized).squeeze()
             loss = criterion(output, is_cut)
 
             # backward
@@ -109,7 +114,7 @@ def main(args):
     # save final model
     torch.save(
         model.state_dict(),
-        os.path.join(ckpt_dir, f'ckpt_last.ckpt')
+        os.path.join(ckpt_dir, 'ckpt_last.ckpt')
     )
     
 

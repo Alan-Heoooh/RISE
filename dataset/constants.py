@@ -1,6 +1,6 @@
 import numpy as np
 
-TO_TENSOR_KEYS = ['input_coords_list', 'input_feats_list', 'input_force_list', 'input_force_list_normalized' 'action', 'action_normalized']
+TO_TENSOR_KEYS = ['input_coords_list', 'input_feats_list', 'input_force_list', 'input_force_list_normalized' 'action', 'action_normalized', 'input_frame_list', 'input_frame_list_normalized', 'is_cut']
 
 # camera intrinsics
 INTRINSICS = {
